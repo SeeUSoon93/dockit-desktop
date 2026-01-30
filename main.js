@@ -1,6 +1,7 @@
-const { app, BrowserWindow, Menu, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, dialog } = require("electron");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 
 // 메뉴바 제거
 Menu.setApplicationMenu(null);
@@ -115,4 +116,71 @@ app.on("open-file", (event, filePath) => {
       fileToOpen = filePath;
     }
   }
+});
+
+// 인쇄 미리 보기 지원을 위한 IPC 핸들러
+ipcMain.handle("print-with-preview", async (event, options = {}) => {
+  if (!mainWindow) return { success: false, error: "No window" };
+
+  try {
+    // PDF로 먼저 생성하여 미리 보기 창에서 인쇄
+    const pdfData = await mainWindow.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+      ...options
+    });
+
+    // 임시 PDF 파일 생성
+    const tempPath = path.join(os.tmpdir(), `dockit-print-${Date.now()}.pdf`);
+    fs.writeFileSync(tempPath, pdfData);
+
+    // 미리 보기 창 생성
+    const previewWindow = new BrowserWindow({
+      width: 800,
+      height: 900,
+      parent: mainWindow,
+      modal: true,
+      title: "인쇄 미리 보기",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        plugins: true
+      }
+    });
+
+    // PDF 파일 로드 (Chromium 내장 PDF 뷰어 사용)
+    previewWindow.loadURL(`file://${tempPath}`);
+
+    // 창 닫힐 때 임시 파일 삭제
+    previewWindow.on("closed", () => {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch (e) {
+        // 파일 삭제 실패 무시
+      }
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("인쇄 미리 보기 실패:", error);
+    return { success: false, error: error.message };
+  }
+});
+
+// 직접 인쇄 (시스템 대화상자)
+ipcMain.handle("print-direct", async (event, options = {}) => {
+  if (!mainWindow) return { success: false, error: "No window" };
+
+  return new Promise((resolve) => {
+    mainWindow.webContents.print(
+      {
+        silent: false,
+        printBackground: true,
+        ...options
+      },
+      (success, failureReason) => {
+        resolve({ success, error: failureReason });
+      }
+    );
+  });
 });
