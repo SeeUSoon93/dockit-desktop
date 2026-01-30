@@ -22,19 +22,19 @@
     "directories": {
       "output": "dist"
     },
-    "fileAssociations": [
-      {
-        "ext": "dockit",
-        "name": "Dockit Document",
-        "description": "Dockit 문서 파일",
-        "mimeType": "application/x-dockit",
-        "icon": "icons/dockit-file.ico",
-        "role": "Editor"
-      }
-    ],
     "win": {
       "target": "nsis",
-      "icon": "icons/icon.ico"
+      "icon": "icons/icon.ico",
+      "fileAssociations": [
+        {
+          "ext": "dockit",
+          "name": "Dockit Document",
+          "description": "Dockit 문서 파일",
+          "mimeType": "application/x-dockit",
+          "icon": "icons/dockit-file.ico",
+          "role": "Editor"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -43,11 +43,30 @@
     },
     "mac": {
       "target": "dmg",
-      "icon": "icons/icon.png"
+      "icon": "icons/icon.png",
+      "fileAssociations": [
+        {
+          "ext": "dockit",
+          "name": "Dockit Document",
+          "description": "Dockit 문서 파일",
+          "mimeType": "application/x-dockit",
+          "icon": "icons/dockit-file.png",
+          "role": "Editor"
+        }
+      ]
     },
     "linux": {
       "target": "AppImage",
-      "icon": "icons/icon.png"
+      "icon": "icons/icon.png",
+      "fileAssociations": [
+        {
+          "ext": "dockit",
+          "name": "Dockit Document",
+          "description": "Dockit 문서 파일",
+          "mimeType": "application/x-dockit",
+          "icon": "icons/dockit-file.png"
+        }
+      ]
     }
   }
 }
