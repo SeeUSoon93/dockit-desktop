@@ -1,0 +1,53 @@
+{
+  "name": "dockit-desktop",
+  "version": "0.1.2",
+  "description": "Dockit 데스크톱 앱",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "kr.dockit.desktop",
+    "productName": "Dockit",
+    "directories": {
+      "output": "dist"
+    },
+    "fileAssociations": [
+      {
+        "ext": "dockit",
+        "name": "Dockit Document",
+        "description": "Dockit 문서 파일",
+        "mimeType": "application/x-dockit",
+        "icon": "icons/dockit-file.ico",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icons/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "icons/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "icons/icon.png"
+    }
+  }
+}
