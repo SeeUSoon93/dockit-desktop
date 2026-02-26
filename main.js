@@ -63,6 +63,16 @@ function createWindow() {
     width: 1280,
     height: 800,
     icon: path.join(__dirname, "icons", "icon.png"),
+
+    // 추가 시작
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#ffffff", // 초기값 (나중에 변경됨)
+      symbolColor: "#000000",
+      height: 40
+    },
+    // 추가 끝
+
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -183,4 +193,19 @@ ipcMain.handle("print-direct", async (event, options = {}) => {
       }
     );
   });
+});
+
+// 색 변경 IPC
+ipcMain.on("set-titlebar-color", (event, { color, symbolColor }) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+
+  try {
+    win.setTitleBarOverlay({
+      color,
+      symbolColor
+    });
+  } catch (e) {
+    console.error("Titlebar color change failed:", e);
+  }
 });
