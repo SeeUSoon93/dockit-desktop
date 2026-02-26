@@ -10,5 +10,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("print-with-preview", options),
 
   // 직접 인쇄
-  printDirect: (options) => ipcRenderer.invoke("print-direct", options)
+  printDirect: (options) => ipcRenderer.invoke("print-direct", options),
+
+  minimize: () => ipcRenderer.send("window-minimize"),
+  maximize: () => ipcRenderer.send("window-maximize"),
+  close: () => ipcRenderer.send("window-close")
 });
