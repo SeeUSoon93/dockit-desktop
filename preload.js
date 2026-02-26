@@ -10,10 +10,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("print-with-preview", options),
 
   // 직접 인쇄
-  printDirect: (options) => ipcRenderer.invoke("print-direct", options),
-
-  // 🔽 추가: 제목바 색상 변경
-  setTitlebarColor: (color, symbolColor) => {
-    ipcRenderer.send("set-titlebar-color", { color, symbolColor });
-  }
+  printDirect: (options) => ipcRenderer.invoke("print-direct", options)
 });
