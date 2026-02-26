@@ -65,7 +65,6 @@ function createWindow() {
     icon: path.join(__dirname, "icons", "icon.png"),
 
     // 추가 시작
-    titleBarStyle: "hidden",
     titleBarOverlay: {
       color: "#ffffff", // 초기값 (나중에 변경됨)
       symbolColor: "#000000",
