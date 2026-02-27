@@ -57,11 +57,6 @@ if (!gotTheLock) {
   });
 }
 
-// 라운드 모서리 CSS (최대화 시 제거, 복원 시 재적용)
-const CSS_ROUNDED = `
-  html { border-radius: 12px !important; overflow: hidden !important; }
-`;
-
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -69,8 +64,8 @@ function createWindow() {
     icon: path.join(__dirname, "icons", "icon.png"),
     frame: false,
     transparent: true,
-    hasShadow: true,
-    roundedCorners: true,
+    hasShadow: false, // Windows에서는 의미 없음
+    backgroundColor: "#00000000",
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js")
@@ -87,30 +82,18 @@ function createWindow() {
     mainWindow.webContents.getUserAgent() + " DockitDesktop"
   );
 
-  // 최대화: 라운드 제거 + renderer에 알림
+  // 최대화: 라운드/그림자 제거 + renderer에 알림
   mainWindow.on("maximize", () => {
-    mainWindow.webContents
-      .executeJavaScript(
-        "document.documentElement.style.borderRadius = '0'; document.documentElement.style.overflow = '';"
-      )
-      .catch(() => {});
     mainWindow.webContents.send("window-maximized", true);
   });
 
-  // 복원: 라운드 재적용 + renderer에 알림
+  // 복원: 라운드/그림자 재적용 + renderer에 알림
   mainWindow.on("unmaximize", () => {
-    mainWindow.webContents
-      .executeJavaScript(
-        "document.documentElement.style.borderRadius = '12px'; document.documentElement.style.overflow = 'hidden';"
-      )
-      .catch(() => {});
     mainWindow.webContents.send("window-maximized", false);
   });
 
   // 페이지 로드 완료 후 라운드 CSS 주입
   mainWindow.webContents.on("did-finish-load", () => {
-    mainWindow.webContents.insertCSS(CSS_ROUNDED).catch(() => {});
-
     if (fileToOpen) {
       setTimeout(() => {
         loadDockitFile(fileToOpen);
