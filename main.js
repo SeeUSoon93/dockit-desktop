@@ -71,7 +71,7 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadURL("https://dockit.kr");
+  mainWindow.loadURL("http://localhost:3000");
 
   mainWindow.on("closed", () => {
     mainWindow = null;
