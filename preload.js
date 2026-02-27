@@ -12,7 +12,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // 직접 인쇄
   printDirect: (options) => ipcRenderer.invoke("print-direct", options),
 
+  // 윈도우 컨트롤
   minimize: () => ipcRenderer.send("window-minimize"),
   maximize: () => ipcRenderer.send("window-maximize"),
-  close: () => ipcRenderer.send("window-close")
+  close: () => ipcRenderer.send("window-close"),
+  onWindowMaximized: (callback) => {
+    ipcRenderer.on("window-maximized", (_event, isMax) => callback(isMax));
+  }
 });

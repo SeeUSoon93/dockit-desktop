@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -50,7 +50,6 @@ if (!gotTheLock) {
     if (filePath && mainWindow) {
       loadDockitFile(filePath);
     }
-    // 창 포커스
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
@@ -58,15 +57,20 @@ if (!gotTheLock) {
   });
 }
 
+// 라운드 모서리 CSS (최대화 시 제거, 복원 시 재적용)
+const CSS_ROUNDED = `
+  html { border-radius: 12px !important; overflow: hidden !important; }
+`;
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-
-    titleBarStyle: "hidden",
+    icon: path.join(__dirname, "icons", "icon.png"),
+    frame: false,
     transparent: true,
-    backgroundColor: "#00000000",
-
+    hasShadow: true,
+    roundedCorners: true,
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js")
@@ -83,10 +87,31 @@ function createWindow() {
     mainWindow.webContents.getUserAgent() + " DockitDesktop"
   );
 
-  // 페이지 로드 완료 후 파일 열기
+  // 최대화: 라운드 제거 + renderer에 알림
+  mainWindow.on("maximize", () => {
+    mainWindow.webContents
+      .executeJavaScript(
+        "document.documentElement.style.borderRadius = '0'; document.documentElement.style.overflow = '';"
+      )
+      .catch(() => {});
+    mainWindow.webContents.send("window-maximized", true);
+  });
+
+  // 복원: 라운드 재적용 + renderer에 알림
+  mainWindow.on("unmaximize", () => {
+    mainWindow.webContents
+      .executeJavaScript(
+        "document.documentElement.style.borderRadius = '12px'; document.documentElement.style.overflow = 'hidden';"
+      )
+      .catch(() => {});
+    mainWindow.webContents.send("window-maximized", false);
+  });
+
+  // 페이지 로드 완료 후 라운드 CSS 주입
   mainWindow.webContents.on("did-finish-load", () => {
+    mainWindow.webContents.insertCSS(CSS_ROUNDED).catch(() => {});
+
     if (fileToOpen) {
-      // 약간의 딜레이 후 파일 열기 (앱 초기화 대기)
       setTimeout(() => {
         loadDockitFile(fileToOpen);
         fileToOpen = null;
@@ -121,23 +146,34 @@ app.on("open-file", (event, filePath) => {
   }
 });
 
+// 윈도우 컨트롤 IPC 핸들러
+ipcMain.on("window-minimize", (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.minimize();
+});
+ipcMain.on("window-maximize", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+ipcMain.on("window-close", (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.close();
+});
+
 // 인쇄 미리 보기 지원을 위한 IPC 핸들러
 ipcMain.handle("print-with-preview", async (event, options = {}) => {
   if (!mainWindow) return { success: false, error: "No window" };
 
   try {
-    // PDF로 먼저 생성하여 미리 보기 창에서 인쇄
     const pdfData = await mainWindow.webContents.printToPDF({
       printBackground: true,
       preferCSSPageSize: true,
       ...options
     });
 
-    // 임시 PDF 파일 생성
     const tempPath = path.join(os.tmpdir(), `dockit-print-${Date.now()}.pdf`);
     fs.writeFileSync(tempPath, pdfData);
 
-    // 미리 보기 창 생성
     const previewWindow = new BrowserWindow({
       width: 800,
       height: 900,
@@ -151,10 +187,8 @@ ipcMain.handle("print-with-preview", async (event, options = {}) => {
       }
     });
 
-    // PDF 파일 로드 (Chromium 내장 PDF 뷰어 사용)
     previewWindow.loadURL(`file://${tempPath}`);
 
-    // 창 닫힐 때 임시 파일 삭제
     previewWindow.on("closed", () => {
       try {
         fs.unlinkSync(tempPath);
@@ -171,7 +205,7 @@ ipcMain.handle("print-with-preview", async (event, options = {}) => {
 });
 
 // 직접 인쇄 (시스템 대화상자)
-ipcMain.handle("print-direct", async (event, options = {}) => {
+ipcMain.handle("print-direct", async (_event, options = {}) => {
   if (!mainWindow) return { success: false, error: "No window" };
 
   return new Promise((resolve) => {
@@ -186,25 +220,4 @@ ipcMain.handle("print-direct", async (event, options = {}) => {
       }
     );
   });
-});
-
-ipcMain.on("window-minimize", (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  win?.minimize();
-});
-
-ipcMain.on("window-maximize", (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-
-  if (win.isMaximized()) {
-    win.unmaximize();
-  } else {
-    win.maximize();
-  }
-});
-
-ipcMain.on("window-close", (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  win?.close();
 });
