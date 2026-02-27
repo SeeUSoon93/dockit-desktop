@@ -19,6 +19,7 @@
   "build": {
     "appId": "kr.dockit.desktop",
     "productName": "Dockit",
+    "artifactName": "${productName}.${ext}",
     "directories": {
       "output": "dist"
     },
