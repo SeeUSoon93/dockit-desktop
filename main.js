@@ -63,9 +63,8 @@ function createWindow() {
     height: 800,
     icon: path.join(__dirname, "icons", "icon.png"),
     frame: false,
-    transparent: true,
-    hasShadow: false, // Windows에서는 의미 없음
-    backgroundColor: "#00000000",
+    transparent: false,
+    backgroundColor: "#ffffff",
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js")
