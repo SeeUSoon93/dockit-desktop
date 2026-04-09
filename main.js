@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, screen } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -8,6 +8,13 @@ Menu.setApplicationMenu(null);
 
 const dockitWindows = new Set();
 const pendingFilesToOpen = [];
+const windowStateSaveTimers = new WeakMap();
+const DEFAULT_WINDOW_STATE = Object.freeze({
+  width: 1280,
+  height: 800,
+  isMaximized: false
+});
+const WINDOW_STATE_FILE_NAME = "window-state.json";
 
 // Windows/Linux: 파일 더블클릭 시 process.argv로 경로 전달됨
 function getFileFromArgs(argv) {
@@ -25,6 +32,155 @@ function focusWindow(win) {
 
 function getFirstWindow() {
   return Array.from(dockitWindows).find((win) => !win.isDestroyed()) || null;
+}
+
+function getReferenceWindow() {
+  return BrowserWindow.getFocusedWindow() || getFirstWindow();
+}
+
+function getWindowStatePath() {
+  return path.join(app.getPath("userData"), WINDOW_STATE_FILE_NAME);
+}
+
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isVisibleOnSomeDisplay(bounds) {
+  return screen.getAllDisplays().some(({ workArea }) => {
+    const intersectsHorizontally =
+      bounds.x < workArea.x + workArea.width &&
+      bounds.x + bounds.width > workArea.x;
+    const intersectsVertically =
+      bounds.y < workArea.y + workArea.height &&
+      bounds.y + bounds.height > workArea.y;
+
+    return intersectsHorizontally && intersectsVertically;
+  });
+}
+
+function readWindowState() {
+  try {
+    const raw = fs.readFileSync(getWindowStatePath(), "utf-8");
+    const parsed = JSON.parse(raw);
+
+    if (
+      !isFiniteNumber(parsed.width) ||
+      !isFiniteNumber(parsed.height) ||
+      parsed.width <= 0 ||
+      parsed.height <= 0
+    ) {
+      return { ...DEFAULT_WINDOW_STATE };
+    }
+
+    const nextState = {
+      width: parsed.width,
+      height: parsed.height,
+      isMaximized: Boolean(parsed.isMaximized)
+    };
+
+    if (isFiniteNumber(parsed.x) && isFiniteNumber(parsed.y)) {
+      const candidateBounds = {
+        x: parsed.x,
+        y: parsed.y,
+        width: parsed.width,
+        height: parsed.height
+      };
+
+      if (isVisibleOnSomeDisplay(candidateBounds)) {
+        nextState.x = parsed.x;
+        nextState.y = parsed.y;
+      }
+    }
+
+    return nextState;
+  } catch (_error) {
+    return { ...DEFAULT_WINDOW_STATE };
+  }
+}
+
+function getOffsetWindowState(sourceWindow) {
+  if (
+    !sourceWindow ||
+    sourceWindow.isDestroyed() ||
+    sourceWindow.isMaximized() ||
+    sourceWindow.isFullScreen()
+  ) {
+    return null;
+  }
+
+  const sourceBounds = sourceWindow.getNormalBounds();
+  const display = screen.getDisplayMatching(sourceBounds);
+  const { workArea } = display;
+  const offset = 28;
+  const maxX = workArea.x + Math.max(0, workArea.width - sourceBounds.width);
+  const maxY = workArea.y + Math.max(0, workArea.height - sourceBounds.height);
+
+  return {
+    x: Math.max(workArea.x, Math.min(sourceBounds.x + offset, maxX)),
+    y: Math.max(workArea.y, Math.min(sourceBounds.y + offset, maxY)),
+    width: sourceBounds.width,
+    height: sourceBounds.height,
+    isMaximized: false
+  };
+}
+
+function getWindowState(sourceWindow = null) {
+  return getOffsetWindowState(sourceWindow) || readWindowState();
+}
+
+function saveWindowState(win) {
+  if (!win || win.isDestroyed()) return;
+
+  try {
+    const bounds = win.getNormalBounds();
+    const stateToSave = {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      isMaximized: win.isMaximized()
+    };
+
+    fs.writeFileSync(getWindowStatePath(), JSON.stringify(stateToSave, null, 2));
+  } catch (error) {
+    console.error("창 상태 저장 실패:", error);
+  }
+}
+
+function scheduleWindowStateSave(win) {
+  if (!win || win.isDestroyed()) return;
+
+  const existingTimer = windowStateSaveTimers.get(win);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const timer = setTimeout(() => {
+    windowStateSaveTimers.delete(win);
+    saveWindowState(win);
+  }, 250);
+
+  windowStateSaveTimers.set(win, timer);
+}
+
+function clearWindowStateSaveTimer(win) {
+  const existingTimer = windowStateSaveTimers.get(win);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    windowStateSaveTimers.delete(win);
+  }
+}
+
+function isNewWindowShortcut(input) {
+  return (
+    input.type === "keyDown" &&
+    typeof input.key === "string" &&
+    input.key.toLowerCase() === "n" &&
+    input.shift &&
+    !input.alt &&
+    (input.control || input.meta)
+  );
 }
 
 // .dockit 파일 읽어서 특정 renderer에 전달
@@ -46,12 +202,15 @@ function loadDockitFile(targetWindow, filePath) {
   }
 }
 
-function createWindow(filePath = null) {
+function createWindow(filePath = null, options = {}) {
   let pendingFilePath = filePath;
+  const windowState = getWindowState(options.sourceWindow);
 
   const dockitWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: windowState.width,
+    height: windowState.height,
+    ...(isFiniteNumber(windowState.x) ? { x: windowState.x } : {}),
+    ...(isFiniteNumber(windowState.y) ? { y: windowState.y } : {}),
     icon: path.join(__dirname, "icons", "icon.png"),
     frame: false,
     transparent: false,
@@ -65,7 +224,16 @@ function createWindow(filePath = null) {
   dockitWindows.add(dockitWindow);
   dockitWindow.loadURL("https://dockit.kr");
 
+  dockitWindow.on("move", () => {
+    scheduleWindowStateSave(dockitWindow);
+  });
+
+  dockitWindow.on("resize", () => {
+    scheduleWindowStateSave(dockitWindow);
+  });
+
   dockitWindow.on("closed", () => {
+    clearWindowStateSaveTimer(dockitWindow);
     dockitWindows.delete(dockitWindow);
   });
 
@@ -75,12 +243,26 @@ function createWindow(filePath = null) {
 
   // 최대화: 라운드/그림자 제거 + renderer에 알림
   dockitWindow.on("maximize", () => {
+    scheduleWindowStateSave(dockitWindow);
     dockitWindow.webContents.send("window-maximized", true);
   });
 
   // 복원: 라운드/그림자 재적용 + renderer에 알림
   dockitWindow.on("unmaximize", () => {
+    scheduleWindowStateSave(dockitWindow);
     dockitWindow.webContents.send("window-maximized", false);
+  });
+
+  dockitWindow.on("close", () => {
+    saveWindowState(dockitWindow);
+  });
+
+  dockitWindow.webContents.on("before-input-event", (event, input) => {
+    if (!isNewWindowShortcut(input)) return;
+
+    event.preventDefault();
+    const newWindow = createWindow(null, { sourceWindow: dockitWindow });
+    focusWindow(newWindow);
   });
 
   dockitWindow.webContents.on("did-finish-load", () => {
@@ -93,6 +275,10 @@ function createWindow(filePath = null) {
       loadDockitFile(dockitWindow, fileToLoad);
     }, 1500);
   });
+
+  if (windowState.isMaximized) {
+    dockitWindow.maximize();
+  }
 
   return dockitWindow;
 }
@@ -111,10 +297,13 @@ if (!gotTheLock) {
   // 이미 실행 중일 때 새 창 또는 새 문서 열기
   app.on("second-instance", (_event, argv) => {
     const filePath = getFileFromArgs(argv);
+    const referenceWindow = getReferenceWindow();
 
     if (filePath) {
       if (app.isReady()) {
-        const newWindow = createWindow(filePath);
+        const newWindow = createWindow(filePath, {
+          sourceWindow: referenceWindow
+        });
         focusWindow(newWindow);
       } else {
         pendingFilesToOpen.push(filePath);
@@ -123,7 +312,7 @@ if (!gotTheLock) {
     }
 
     if (app.isReady()) {
-      const newWindow = createWindow();
+      const newWindow = createWindow(null, { sourceWindow: referenceWindow });
       focusWindow(newWindow);
       return;
     }
@@ -165,7 +354,9 @@ app.on("open-file", (event, filePath) => {
   if (!filePath.endsWith(".dockit")) return;
 
   if (app.isReady()) {
-    const newWindow = createWindow(filePath);
+    const newWindow = createWindow(filePath, {
+      sourceWindow: getReferenceWindow()
+    });
     focusWindow(newWindow);
     return;
   }
