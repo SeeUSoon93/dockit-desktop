@@ -6,8 +6,8 @@ const os = require("os");
 // 메뉴바 제거
 Menu.setApplicationMenu(null);
 
-let mainWindow;
-let fileToOpen = null;
+const dockitWindows = new Set();
+const pendingFilesToOpen = [];
 
 // Windows/Linux: 파일 더블클릭 시 process.argv로 경로 전달됨
 function getFileFromArgs(argv) {
@@ -16,16 +16,27 @@ function getFileFromArgs(argv) {
   return dockitFile || null;
 }
 
-// .dockit 파일 읽어서 renderer에 전달
-function loadDockitFile(filePath) {
-  if (!mainWindow || !filePath) return;
+function focusWindow(win) {
+  if (!win || win.isDestroyed()) return;
+
+  if (win.isMinimized()) win.restore();
+  win.focus();
+}
+
+function getFirstWindow() {
+  return Array.from(dockitWindows).find((win) => !win.isDestroyed()) || null;
+}
+
+// .dockit 파일 읽어서 특정 renderer에 전달
+function loadDockitFile(targetWindow, filePath) {
+  if (!targetWindow || targetWindow.isDestroyed() || !filePath) return;
 
   try {
     const content = fs.readFileSync(filePath, "utf-8");
     const data = JSON.parse(content);
 
     if (data.fileType === "dockit-document") {
-      mainWindow.webContents.send("open-dockit-file", {
+      targetWindow.webContents.send("open-dockit-file", {
         filePath,
         data
       });
@@ -35,30 +46,10 @@ function loadDockitFile(filePath) {
   }
 }
 
-// 앱 시작 시 파일 경로 확인
-fileToOpen = getFileFromArgs(process.argv);
+function createWindow(filePath = null) {
+  let pendingFilePath = filePath;
 
-// Single Instance Lock - 앱 중복 실행 방지
-const gotTheLock = app.requestSingleInstanceLock();
-
-if (!gotTheLock) {
-  app.quit();
-} else {
-  // 이미 실행 중일 때 다른 파일 열기 시도
-  app.on("second-instance", (event, argv) => {
-    const filePath = getFileFromArgs(argv);
-    if (filePath && mainWindow) {
-      loadDockitFile(filePath);
-    }
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
-}
-
-function createWindow() {
-  mainWindow = new BrowserWindow({
+  const dockitWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     icon: path.join(__dirname, "icons", "icon.png"),
@@ -71,38 +62,89 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadURL("https://dockit.kr");
+  dockitWindows.add(dockitWindow);
+  dockitWindow.loadURL("https://dockit.kr");
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  dockitWindow.on("closed", () => {
+    dockitWindows.delete(dockitWindow);
   });
 
-  mainWindow.webContents.setUserAgent(
-    mainWindow.webContents.getUserAgent() + " DockitDesktop"
+  dockitWindow.webContents.setUserAgent(
+    dockitWindow.webContents.getUserAgent() + " DockitDesktop"
   );
 
   // 최대화: 라운드/그림자 제거 + renderer에 알림
-  mainWindow.on("maximize", () => {
-    mainWindow.webContents.send("window-maximized", true);
+  dockitWindow.on("maximize", () => {
+    dockitWindow.webContents.send("window-maximized", true);
   });
 
   // 복원: 라운드/그림자 재적용 + renderer에 알림
-  mainWindow.on("unmaximize", () => {
-    mainWindow.webContents.send("window-maximized", false);
+  dockitWindow.on("unmaximize", () => {
+    dockitWindow.webContents.send("window-maximized", false);
   });
 
-  // 페이지 로드 완료 후 라운드 CSS 주입
-  mainWindow.webContents.on("did-finish-load", () => {
-    if (fileToOpen) {
-      setTimeout(() => {
-        loadDockitFile(fileToOpen);
-        fileToOpen = null;
-      }, 1500);
+  dockitWindow.webContents.on("did-finish-load", () => {
+    if (!pendingFilePath) return;
+
+    const fileToLoad = pendingFilePath;
+    pendingFilePath = null;
+
+    setTimeout(() => {
+      loadDockitFile(dockitWindow, fileToLoad);
+    }, 1500);
+  });
+
+  return dockitWindow;
+}
+
+const initialFileToOpen = getFileFromArgs(process.argv);
+if (initialFileToOpen) {
+  pendingFilesToOpen.push(initialFileToOpen);
+}
+
+// Single Instance Lock - 앱 중복 실행 방지
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  // 이미 실행 중일 때 새 창 또는 새 문서 열기
+  app.on("second-instance", (_event, argv) => {
+    const filePath = getFileFromArgs(argv);
+
+    if (filePath) {
+      if (app.isReady()) {
+        const newWindow = createWindow(filePath);
+        focusWindow(newWindow);
+      } else {
+        pendingFilesToOpen.push(filePath);
+      }
+      return;
+    }
+
+    if (app.isReady()) {
+      const newWindow = createWindow();
+      focusWindow(newWindow);
+      return;
+    }
+
+    const existingWindow = getFirstWindow();
+    if (existingWindow) {
+      focusWindow(existingWindow);
     }
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  if (pendingFilesToOpen.length > 0) {
+    pendingFilesToOpen.splice(0).forEach((filePath) => {
+      createWindow(filePath);
+    });
+    return;
+  }
+
+  createWindow();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
@@ -111,7 +153,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (mainWindow === null) {
+  if (dockitWindows.size === 0) {
     createWindow();
   }
 });
@@ -119,13 +161,16 @@ app.on("activate", () => {
 // macOS: 파일 더블클릭 또는 드래그앤드롭
 app.on("open-file", (event, filePath) => {
   event.preventDefault();
-  if (filePath.endsWith(".dockit")) {
-    if (mainWindow) {
-      loadDockitFile(filePath);
-    } else {
-      fileToOpen = filePath;
-    }
+
+  if (!filePath.endsWith(".dockit")) return;
+
+  if (app.isReady()) {
+    const newWindow = createWindow(filePath);
+    focusWindow(newWindow);
+    return;
   }
+
+  pendingFilesToOpen.push(filePath);
 });
 
 // 윈도우 컨트롤 IPC 핸들러
@@ -144,10 +189,11 @@ ipcMain.on("window-close", (event) => {
 
 // 인쇄 미리 보기 지원을 위한 IPC 핸들러
 ipcMain.handle("print-with-preview", async (event, options = {}) => {
-  if (!mainWindow) return { success: false, error: "No window" };
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!ownerWindow) return { success: false, error: "No window" };
 
   try {
-    const pdfData = await mainWindow.webContents.printToPDF({
+    const pdfData = await ownerWindow.webContents.printToPDF({
       printBackground: true,
       preferCSSPageSize: true,
       ...options
@@ -159,7 +205,7 @@ ipcMain.handle("print-with-preview", async (event, options = {}) => {
     const previewWindow = new BrowserWindow({
       width: 800,
       height: 900,
-      parent: mainWindow,
+      parent: ownerWindow,
       modal: true,
       title: "인쇄 미리 보기",
       webPreferences: {
@@ -187,11 +233,12 @@ ipcMain.handle("print-with-preview", async (event, options = {}) => {
 });
 
 // 직접 인쇄 (시스템 대화상자)
-ipcMain.handle("print-direct", async (_event, options = {}) => {
-  if (!mainWindow) return { success: false, error: "No window" };
+ipcMain.handle("print-direct", async (event, options = {}) => {
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!ownerWindow) return { success: false, error: "No window" };
 
   return new Promise((resolve) => {
-    mainWindow.webContents.print(
+    ownerWindow.webContents.print(
       {
         silent: false,
         printBackground: true,
