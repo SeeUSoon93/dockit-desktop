@@ -1,6 +1,6 @@
 {
   "name": "dockit-desktop",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "description": "Dockit 데스크톱 앱",
   "main": "main.js",
   "scripts": {
@@ -28,10 +28,10 @@
       "icon": "icons/icon.ico",
       "fileAssociations": [
         {
-          "ext": "dockit",
+          "ext": "dkt",
           "name": "Dockit Document",
           "description": "Dockit 문서 파일",
-          "mimeType": "application/x-dockit",
+          "mimeType": "application/x-dkt",
           "icon": "icons/dockit-file.ico",
           "role": "Editor"
         }
@@ -47,10 +47,10 @@
       "icon": "icons/icon.png",
       "fileAssociations": [
         {
-          "ext": "dockit",
+          "ext": "dkt",
           "name": "Dockit Document",
           "description": "Dockit 문서 파일",
-          "mimeType": "application/x-dockit",
+          "mimeType": "application/x-dkt",
           "icon": "icons/dockit-file.png",
           "role": "Editor"
         }
@@ -61,10 +61,10 @@
       "icon": "icons/icon.png",
       "fileAssociations": [
         {
-          "ext": "dockit",
+          "ext": "dkt",
           "name": "Dockit Document",
           "description": "Dockit 문서 파일",
-          "mimeType": "application/x-dockit",
+          "mimeType": "application/x-dkt",
           "icon": "icons/dockit-file.png"
         }
       ]

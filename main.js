@@ -9,6 +9,9 @@ Menu.setApplicationMenu(null);
 const dockitWindows = new Set();
 const pendingFilesToOpen = [];
 const windowStateSaveTimers = new WeakMap();
+const trackedDownloadSessions = new WeakSet();
+const DOCUMENT_EXTENSION = ".dkt";
+const WINDOWS_APP_USER_MODEL_ID = "kr.dockit.desktop";
 const DEFAULT_WINDOW_STATE = Object.freeze({
   width: 1280,
   height: 800,
@@ -19,8 +22,51 @@ const WINDOW_STATE_FILE_NAME = "window-state.json";
 // Windows/Linux: 파일 더블클릭 시 process.argv로 경로 전달됨
 function getFileFromArgs(argv) {
   const args = argv.slice(app.isPackaged ? 1 : 2);
-  const dockitFile = args.find((arg) => arg.endsWith(".dockit"));
-  return dockitFile || null;
+  const documentFile = args.find((arg) => isDockitDocumentPath(arg));
+  return documentFile || null;
+}
+
+function isDockitDocumentPath(filePath) {
+  return (
+    typeof filePath === "string" &&
+    filePath.toLowerCase().endsWith(DOCUMENT_EXTENSION)
+  );
+}
+
+function addRecentDocument(filePath) {
+  if (
+    (process.platform !== "win32" && process.platform !== "darwin") ||
+    !isDockitDocumentPath(filePath)
+  ) {
+    return;
+  }
+
+  const resolvedPath = path.resolve(filePath);
+
+  if (!fs.existsSync(resolvedPath)) {
+    return;
+  }
+
+  app.addRecentDocument(resolvedPath);
+}
+
+function registerDownloadTracking(targetSession) {
+  if (!targetSession || trackedDownloadSessions.has(targetSession)) {
+    return;
+  }
+
+  trackedDownloadSessions.add(targetSession);
+
+  targetSession.on("will-download", (_event, item) => {
+    item.once("done", (_doneEvent, state) => {
+      if (state !== "completed") {
+        return;
+      }
+
+      const savedPath = item.getSavePath();
+      addRecentDocument(savedPath);
+    });
+  });
 }
 
 function focusWindow(win) {
@@ -183,7 +229,7 @@ function isNewWindowShortcut(input) {
   );
 }
 
-// .dockit 파일 읽어서 특정 renderer에 전달
+// .dkt 파일 읽어서 특정 renderer에 전달
 function loadDockitFile(targetWindow, filePath) {
   if (!targetWindow || targetWindow.isDestroyed() || !filePath) return;
 
@@ -192,6 +238,7 @@ function loadDockitFile(targetWindow, filePath) {
     const data = JSON.parse(content);
 
     if (data.fileType === "dockit-document") {
+      addRecentDocument(filePath);
       targetWindow.webContents.send("open-dockit-file", {
         filePath,
         data
@@ -221,6 +268,7 @@ function createWindow(filePath = null, options = {}) {
     }
   });
 
+  registerDownloadTracking(dockitWindow.webContents.session);
   dockitWindows.add(dockitWindow);
   dockitWindow.loadURL("https://dockit.kr");
 
@@ -288,6 +336,10 @@ if (initialFileToOpen) {
   pendingFilesToOpen.push(initialFileToOpen);
 }
 
+if (process.platform === "win32") {
+  app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
+}
+
 // Single Instance Lock - 앱 중복 실행 방지
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -351,7 +403,7 @@ app.on("activate", () => {
 app.on("open-file", (event, filePath) => {
   event.preventDefault();
 
-  if (!filePath.endsWith(".dockit")) return;
+  if (!isDockitDocumentPath(filePath)) return;
 
   if (app.isReady()) {
     const newWindow = createWindow(filePath, {
